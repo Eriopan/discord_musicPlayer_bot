@@ -15,3 +15,8 @@ You can change the play mode, such as single-track playback, playlist playback, 
 
 _Attention: The current version may not be able to change the play mode when playing music. So it's best to change the play mode after the playback_
 
+# Version
+
+_discord_bot_ is the Chinese version
+
+_discord_bot_en_ is the English version
