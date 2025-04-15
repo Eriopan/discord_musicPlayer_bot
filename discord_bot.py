@@ -35,6 +35,7 @@ random_flag = 0
 self_flag = 0
 sequential_flag = 0
 single_flag = 1
+current_seek_time = 0
 
 @bot.command()
 @commands.has_permissions(administrator = True)
@@ -221,7 +222,7 @@ async def play_next(ctx):
     print(f'playlist[current_play]: {playlist[current_play]}')
     print(f'playdic[playlist[current_play]]: {playdic[playlist[current_play]]}')
     title, flag = await play_music(ctx, url=playdic[playlist[current_play]])
-    if flag:
+    if not flag:
         current_play = former_cp
 
 @bot.hybrid_command()
@@ -241,36 +242,49 @@ async def play(ctx, *, url):
             playlist.append(title)
             playdic[playlist[listnum-1]] = url
 
-async def play_music(ctx, *, url):
+async def play_music(ctx, *, url, seek_time=0):
     """播放音乐"""
+    global current_seek_time
     if not ctx.voice_client:
         await ctx.invoke(join)
     try:
-        try:
-            async with ctx.typing():
-                loop = asyncio.get_event_loop()
-                data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
-        except:
+        async with ctx.typing():
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
+
         if 'entries' in data:
-            # 如果是播放列表，选择第一个视频
             data = data['entries'][0]
+
         song = data['url']
         title = data.get('title', 'Unknown')
-        player = discord.FFmpegPCMAudio(song, **ffmpeg_options)
+        duration = data.get('duration', 0)
+
+        if seek_time >= duration:
+            await ctx.send(f" 这歌有这么长吗？嗯？说话？")
+            return None, False
+
+        ffmpeg_opts = {
+            'before_options': f'-ss {seek_time}',
+            'options': '-vn'
+        }
+        player = discord.FFmpegPCMAudio(song, **ffmpeg_opts)
+
         if ctx.voice_client.is_playing():
             ctx.voice_client.pause()
-        await ctx.send(f'正在播放：{title} ({url})')
-        print(f'title: {title}')
-        print(f'url: {url}')
+
+        await ctx.send(f' 正在播放：{title} ')
+
         if single_flag:
             ctx.voice_client.play(player)
         else:
-            ctx.voice_client.play(player, after=lambda e: loop.create_task(play_next(ctx)))
+            ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
+
+        current_seek_time = seek_time
+
         return title, True
+
     except Exception as e:
-        await ctx.send(f"并非可以播放：{e}")
+        await ctx.send(f"播放失败：{e}")
         return None, False
 
 @bot.hybrid_command()
@@ -308,6 +322,50 @@ async def on_command_error(ctx, error):
         await ctx.response.send_message("命令执行错误，请检查输入或稍后重试")
     else:
         await ctx.send(f"出现错误：{error}")
+
+@bot.hybrid_command()
+async def seek(ctx, seconds: int):
+    """快进到指定秒数"""
+    global current_play
+    if listnum == 0 or current_play == -1:
+        await ctx.send("还没开始放歌你快进nm")
+        return
+    title = playlist[current_play]
+    url = playdic[title]
+    await play_music(ctx, url=url, seek_time=seconds)
+    await ctx.send(f"快进到第 {seconds} 秒了喵！")
+    
+@bot.hybrid_command()
+async def forward(ctx, seconds: int):
+    """快进指定秒数"""
+    global current_play, current_seek_time
+    if listnum == 0 or current_play == -1:
+        await ctx.send("没播放你快进nm")
+        return
+    if seconds < 0:
+        await ctx.send("秒数不能是负的")
+        return
+    title = playlist[current_play]
+    url = playdic[title]
+    new_seek = current_seek_time + seconds
+    await ctx.send(f"快进 {seconds} 秒了喵")
+    await play_music(ctx, url=url, seek_time=new_seek)
+
+@bot.hybrid_command()
+async def backward(ctx, seconds: int):
+    """快退指定秒数"""
+    global current_play, current_seek_time
+    if listnum == 0 or current_play == -1:
+        await ctx.send("没播放你倒放nm")
+        return
+    if seconds < 0:
+        await ctx.send("秒数不能是负的")
+        return
+    title = playlist[current_play]
+    url = playdic[title]
+    new_seek = max(0, current_seek_time - seconds)
+    await ctx.send(f"倒退 {seconds} 秒了喵")
+    await play_music(ctx, url=url, seek_time=new_seek)
 
 
 bot.run(token)
